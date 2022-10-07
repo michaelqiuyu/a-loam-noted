@@ -1,0 +1,28 @@
+1. 编译运行
+	1.1 mkdri -p catkin_ws/src
+	1.2 mv A-LOAM catkin_ws/src/
+	1.3 cd catkin_ws
+	1.4 catkin_make
+	1.5 source devel/setup.bash
+	1.6 roslaunch aloam_velodyne aloam_velodyne_VLP_16.launch
+	1.7 rosbag play ***.bag
+
+
+2. 前端配准
+	2.1 雷达坐标系：左-前-上
+
+
+3. 雷达里程计
+
+
+4. 后端建图
+
+
+
+
+
+
+论文疑惑点：
+	1. 构建约束的时候的Pk是如何投影到t_k+1的，P_k+1的点又是如何投影到t_k+1的
+	2. 论文中的compute a bisquare weight for each row of 11是什么意思？是核函数吗？
+	3. 配准的时候的关联是如何寻找的
