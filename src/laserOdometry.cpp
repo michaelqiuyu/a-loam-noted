@@ -111,7 +111,7 @@ std::mutex mBuf;
 void TransformToStart(PointType const *const pi, PointType *const po)
 {
     //interpolation ratio
-    double s;
+    double s;  // 相对于一个圆周的比例
     // 由于kitti数据集上的lidar已经做过了运动补偿，因此这里就不做具体补偿了
     if (DISTORTION)
         s = (pi->intensity - int(pi->intensity)) / SCAN_PERIOD;
@@ -120,15 +120,22 @@ void TransformToStart(PointType const *const pi, PointType *const po)
     //s = 1;
     // 所有点的操作方式都是一致的，相当于从结束时刻补偿到起始时刻
     // 这里相当于是一个匀速模型的假设
+#if 0
+    std::cout << "q_last_curr = " << q_last_curr.coeffs().transpose() << std::endl;
+#endif
+    // xc's todo: 关注q_last_curr是在哪里发生的变化
+
+    // 执行四元数球面插值，当前时刻→当前帧开始时刻
     Eigen::Quaterniond q_point_last = Eigen::Quaterniond::Identity().slerp(s, q_last_curr);
     Eigen::Vector3d t_point_last = s * t_last_curr;
     Eigen::Vector3d point(pi->x, pi->y, pi->z);
+    // 将t时刻下激光坐标系下的点云变化到当前帧的开始时刻
     Eigen::Vector3d un_point = q_point_last * point + t_point_last;
 
     po->x = un_point.x();
     po->y = un_point.y();
     po->z = un_point.z();
-    po->intensity = pi->intensity;
+    po->intensity = pi->intensity;  // 依然保留intersity信息
 }
 
 // transform all lidar points to the start of the next frame
@@ -149,7 +156,7 @@ void TransformToEnd(PointType const *const pi, PointType *const po)
     //Remove distortion time info
     po->intensity = int(pi->intensity);
 }
-// 操作都是送去各自的队列中
+// 订阅角点
 void laserCloudSharpHandler(const sensor_msgs::PointCloud2ConstPtr &cornerPointsSharp2)
 {
     mBuf.lock();
@@ -157,6 +164,7 @@ void laserCloudSharpHandler(const sensor_msgs::PointCloud2ConstPtr &cornerPoints
     mBuf.unlock();
 }
 
+// 订阅一般的角点
 void laserCloudLessSharpHandler(const sensor_msgs::PointCloud2ConstPtr &cornerPointsLessSharp2)
 {
     mBuf.lock();
@@ -164,6 +172,7 @@ void laserCloudLessSharpHandler(const sensor_msgs::PointCloud2ConstPtr &cornerPo
     mBuf.unlock();
 }
 
+// 订阅面点
 void laserCloudFlatHandler(const sensor_msgs::PointCloud2ConstPtr &surfPointsFlat2)
 {
     mBuf.lock();
@@ -171,6 +180,7 @@ void laserCloudFlatHandler(const sensor_msgs::PointCloud2ConstPtr &surfPointsFla
     mBuf.unlock();
 }
 
+// 订阅一般的面点
 void laserCloudLessFlatHandler(const sensor_msgs::PointCloud2ConstPtr &surfPointsLessFlat2)
 {
     mBuf.lock();
@@ -178,7 +188,7 @@ void laserCloudLessFlatHandler(const sensor_msgs::PointCloud2ConstPtr &surfPoint
     mBuf.unlock();
 }
 
-//receive all point cloud
+// 订阅所有的点云，并且其按照scan有序排列
 void laserCloudFullResHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudFullRes2)
 {
     mBuf.lock();
@@ -195,30 +205,41 @@ int main(int argc, char **argv)
 
     printf("Mapping %d Hz \n", 10 / skipFrameNum);
     // 订阅提取出来的点云
+
+    // 订阅角点
     ros::Subscriber subCornerPointsSharp = nh.subscribe<sensor_msgs::PointCloud2>("/laser_cloud_sharp", 100, laserCloudSharpHandler);
 
+    // 订阅一般的角点
     ros::Subscriber subCornerPointsLessSharp = nh.subscribe<sensor_msgs::PointCloud2>("/laser_cloud_less_sharp", 100, laserCloudLessSharpHandler);
 
+    // 订阅面点
     ros::Subscriber subSurfPointsFlat = nh.subscribe<sensor_msgs::PointCloud2>("/laser_cloud_flat", 100, laserCloudFlatHandler);
 
+    // 订阅一般的面点
     ros::Subscriber subSurfPointsLessFlat = nh.subscribe<sensor_msgs::PointCloud2>("/laser_cloud_less_flat", 100, laserCloudLessFlatHandler);
 
+    // 订阅所有的点云，并且其按照scan有序排列
     ros::Subscriber subLaserCloudFullRes = nh.subscribe<sensor_msgs::PointCloud2>("/velodyne_cloud_2", 100, laserCloudFullResHandler);
 
+    // 发布上一帧的角点，由雷达建图订阅
     ros::Publisher pubLaserCloudCornerLast = nh.advertise<sensor_msgs::PointCloud2>("/laser_cloud_corner_last", 100);
 
+    // 发布上一帧的面点，由雷达建图订阅
     ros::Publisher pubLaserCloudSurfLast = nh.advertise<sensor_msgs::PointCloud2>("/laser_cloud_surf_last", 100);
 
+    // 发布。。。，由雷达建图订阅
     ros::Publisher pubLaserCloudFullRes = nh.advertise<sensor_msgs::PointCloud2>("/velodyne_cloud_3", 100);
 
+    // 发布。。。，由雷达建图订阅
     ros::Publisher pubLaserOdometry = nh.advertise<nav_msgs::Odometry>("/laser_odom_to_init", 100);
 
+    // 没有节点接收，用于rviz显示
     ros::Publisher pubLaserPath = nh.advertise<nav_msgs::Path>("/laser_odom_path", 100);
 
     nav_msgs::Path laserPath;
 
     int frameCount = 0;
-    ros::Rate rate(100);
+    ros::Rate rate(100);  // 单词循环时间为0.01s；https://blog.csdn.net/qq_45616304/article/details/111655951
 
     while (ros::ok())
     {
@@ -246,22 +267,27 @@ int main(int argc, char **argv)
             }
             // 分别将五个点云消息取出来，同时转成pcl的点云格式
             mBuf.lock();
+            // 取出角点
             cornerPointsSharp->clear();
             pcl::fromROSMsg(*cornerSharpBuf.front(), *cornerPointsSharp);
             cornerSharpBuf.pop();
 
+            // 取出一般的角点
             cornerPointsLessSharp->clear();
             pcl::fromROSMsg(*cornerLessSharpBuf.front(), *cornerPointsLessSharp);
             cornerLessSharpBuf.pop();
 
+            // 取出面点
             surfPointsFlat->clear();
             pcl::fromROSMsg(*surfFlatBuf.front(), *surfPointsFlat);
             surfFlatBuf.pop();
 
+            // 取出一般的面点
             surfPointsLessFlat->clear();
             pcl::fromROSMsg(*surfLessFlatBuf.front(), *surfPointsLessFlat);
             surfLessFlatBuf.pop();
 
+            // 取出所有的点云，并且其按照scan有序排列
             laserCloudFullRes->clear();
             pcl::fromROSMsg(*fullPointsBuf.front(), *laserCloudFullRes);
             fullPointsBuf.pop();
@@ -270,7 +296,7 @@ int main(int argc, char **argv)
             TicToc t_whole;
             // initializing
             // 一个什么也不干的初始化
-            if (!systemInited)
+            if (!systemInited)  // 初始化为false，第一次进入这个循环的时候为false，只需要对上一帧的相关变量进行相应赋值即可，等到了第二帧才开始寻找correspondence
             {
                 systemInited = true;
                 std::cout << "Initialization finished \n";
@@ -297,7 +323,7 @@ int main(int argc, char **argv)
                     ceres::Problem::Options problem_options;
 
                     ceres::Problem problem(problem_options);
-                    // 待优化的变量是帧间位姿，平移和旋转，这里旋转使用四元数来表示
+                    // 待优化的变量是帧间位姿，平移和旋转，这里旋转使用四元数来表示；表示当前到上一帧，初始值为单位阵和0向量
                     problem.AddParameterBlock(para_q, 4, q_parameterization);
                     problem.AddParameterBlock(para_t, 3);
 
@@ -585,10 +611,12 @@ int main(int argc, char **argv)
                 }
             }
 
+            // 交换cornerPointsLessSharp和laserCloudCornerLast；也就是对laserCloudCornerLast赋值为当前帧点云cornerPointsLessSharp
             pcl::PointCloud<PointType>::Ptr laserCloudTemp = cornerPointsLessSharp;
             cornerPointsLessSharp = laserCloudCornerLast;
             laserCloudCornerLast = laserCloudTemp;
 
+            // 交换surfPointsLessFlat和laserCloudSurfLast；也就是对laserCloudSurfLast赋值为当前帧点云surfPointsLessFlat
             laserCloudTemp = surfPointsLessFlat;
             surfPointsLessFlat = laserCloudSurfLast;
             laserCloudSurfLast = laserCloudTemp;
@@ -600,23 +628,26 @@ int main(int argc, char **argv)
             // kdtree设置当前帧，用来下一帧lidar odom使用
             kdtreeCornerLast->setInputCloud(laserCloudCornerLast);
             kdtreeSurfLast->setInputCloud(laserCloudSurfLast);
-            // 一定降频后给后端发送
+            // 一定降频后给后端发送：实际上skipFrameNum等于1，没有降频
             if (frameCount % skipFrameNum == 0)
             {
                 frameCount = 0;
 
+                // 发布上一帧的角点
                 sensor_msgs::PointCloud2 laserCloudCornerLast2;
                 pcl::toROSMsg(*laserCloudCornerLast, laserCloudCornerLast2);
                 laserCloudCornerLast2.header.stamp = ros::Time().fromSec(timeSurfPointsLessFlat);
                 laserCloudCornerLast2.header.frame_id = "/camera";
                 pubLaserCloudCornerLast.publish(laserCloudCornerLast2);
 
+                // 发布上一帧的面点
                 sensor_msgs::PointCloud2 laserCloudSurfLast2;
                 pcl::toROSMsg(*laserCloudSurfLast, laserCloudSurfLast2);
                 laserCloudSurfLast2.header.stamp = ros::Time().fromSec(timeSurfPointsLessFlat);
                 laserCloudSurfLast2.header.frame_id = "/camera";
                 pubLaserCloudSurfLast.publish(laserCloudSurfLast2);
 
+                // 发布上一帧的所有点云
                 sensor_msgs::PointCloud2 laserCloudFullRes3;
                 pcl::toROSMsg(*laserCloudFullRes, laserCloudFullRes3);
                 laserCloudFullRes3.header.stamp = ros::Time().fromSec(timeSurfPointsLessFlat);

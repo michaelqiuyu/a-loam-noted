@@ -114,7 +114,7 @@ void removeClosedPointCloud(const pcl::PointCloud<PointT> &cloud_in,
 
     cloud_out.height = 1;  // 每列只有一个点云
     cloud_out.width = static_cast<uint32_t>(j);  // 点云数量
-    cloud_out.is_dense = true;  // 稠密点云0
+    cloud_out.is_dense = true;  // 稠密点云
 }
 
 // 订阅lidar消息
@@ -282,6 +282,16 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
     // cloudSize是有效的点云的数目
     cloudSize = count;
     printf("points size %d \n", cloudSize);
+#if 0
+    for (int i = 0; i < N_SCANS; i++) {
+        pcl::PointCloud<PointType> points = laserCloudScans[i];
+        for (auto &point: points) {
+            std::cout << point.intensity << std::endl;
+        }
+    }
+#endif
+
+    // notes: laserCloudScans中存储的点云是按照顺序排列的
 
     // 得到的laserCloud是按照scan进行排序的，从矩阵的角度来说，就是ROW-MAJOR
     pcl::PointCloud<PointType>::Ptr laserCloud(new pcl::PointCloud<PointType>());
@@ -330,7 +340,7 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
     // 遍历每个scan
     for (int i = 0; i < N_SCANS; i++)
     {
-        // 没有有效的点了，就continue
+        // 有效的点云太少，只有不超过6个，这种时候不提取特征点
         if( scanEndInd[i] - scanStartInd[i] < 6)
             continue;
         // 用来存储不太平整的点
@@ -347,6 +357,11 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
             std::sort (cloudSortInd + sp, cloudSortInd + ep + 1, comp);
             t_q_sort += t_tmp.toc();
 
+            /**
+             * 以0.1为阈值，大于阈值的为角点，小于阈值的为面点；
+             * 每提取一个特征点，都会将其同一个scan的左右的5个点，如果距离较近，就不会将他们提取为特征点
+             */
+
             int largestPickedNum = 0;
             // 挑选曲率比较大的部分
             for (int k = ep; k >= sp; k--)
@@ -354,7 +369,7 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
                 // 排序后顺序就乱了，这个时候索引的作用就体现出来了
                 int ind = cloudSortInd[k]; 
 
-                // 看看这个点是否是有效点，同时曲率是否大于阈值
+                // 看看这个点是否是被设置为可以提取，同时曲率是否大于阈值
                 if (cloudNeighborPicked[ind] == 0 &&
                     cloudCurvature[ind] > 0.1)
                 {
@@ -367,7 +382,7 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
                         cloudLabel[ind] = 2;
                         // cornerPointsSharp存放大曲率的点
                         cornerPointsSharp.push_back(laserCloud->points[ind]);
-                        cornerPointsLessSharp.push_back(laserCloud->points[ind]);
+                        cornerPointsLessSharp.push_back(laserCloud->points[ind]);  // 比较大的曲率对应的特征点，数量为20个，包含了cornerPointsSharp
                     }
                     // 以及20个曲率稍微大一些的点
                     else if (largestPickedNum <= 20)
@@ -384,6 +399,7 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
                     // 这个点被选中后 pick标志位置1
                     cloudNeighborPicked[ind] = 1; 
                     // 为了保证特征点不过度集中，将选中的点周围5个点都置1,避免后续会选到
+                    // 在周围的点中，如果距离比较近，就不提取特征点了
                     for (int l = 1; l <= 5; l++)
                     {
                         // 查看相邻点距离是否差异过大，如果差异过大说明点云在此不连续，是特征边缘，就会是新的特征，因此就不置位了
@@ -425,6 +441,8 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
                     cloudLabel[ind] = -1; 
                     surfPointsFlat.push_back(laserCloud->points[ind]);
 
+                    // notes: 这里并没有像角点一样提取较为平坦的点，而是直接仅仅知识提取了面点
+
                     smallestPickedNum++;
                     // 这里不区分平坦和比较平坦，因为剩下的点label默认是0,就是比较平坦
                     if (smallestPickedNum >= 4)
@@ -460,6 +478,7 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
                 }
             }
 
+            // notes：较为平坦的特征点在这里被提取，剩余的未被提取的点都在这里
             for (int k = sp; k <= ep; k++)
             {
                 // 这里可以看到，剩下来的点都是一般平坦，这个也符合实际
@@ -470,6 +489,7 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
             }
         }
 
+        // 对较为平坦的点的集合执行体素滤波
         pcl::PointCloud<PointType> surfPointsLessFlatScanDS;
         pcl::VoxelGrid<PointType> downSizeFilter;
         // 一般平坦的点比较多，所以这里做一个体素滤波
@@ -484,29 +504,34 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
 
     // 分别将当前点云、四种特征的点云发布出去
     sensor_msgs::PointCloud2 laserCloudOutMsg;
+    // laserCloud包含了当前的所有的点云，并且其按照scan有序排列
     pcl::toROSMsg(*laserCloud, laserCloudOutMsg);
     laserCloudOutMsg.header.stamp = laserCloudMsg->header.stamp;
     laserCloudOutMsg.header.frame_id = "/camera_init";
     pubLaserCloud.publish(laserCloudOutMsg);
 
+    // 发布角点
     sensor_msgs::PointCloud2 cornerPointsSharpMsg;
     pcl::toROSMsg(cornerPointsSharp, cornerPointsSharpMsg);
     cornerPointsSharpMsg.header.stamp = laserCloudMsg->header.stamp;
     cornerPointsSharpMsg.header.frame_id = "/camera_init";
     pubCornerPointsSharp.publish(cornerPointsSharpMsg);
 
+    // 发布一般的角点
     sensor_msgs::PointCloud2 cornerPointsLessSharpMsg;
     pcl::toROSMsg(cornerPointsLessSharp, cornerPointsLessSharpMsg);
     cornerPointsLessSharpMsg.header.stamp = laserCloudMsg->header.stamp;
     cornerPointsLessSharpMsg.header.frame_id = "/camera_init";
     pubCornerPointsLessSharp.publish(cornerPointsLessSharpMsg);
 
+    // 发布面点
     sensor_msgs::PointCloud2 surfPointsFlat2;
     pcl::toROSMsg(surfPointsFlat, surfPointsFlat2);
     surfPointsFlat2.header.stamp = laserCloudMsg->header.stamp;
     surfPointsFlat2.header.frame_id = "/camera_init";
     pubSurfPointsFlat.publish(surfPointsFlat2);
 
+    // 发布一般的面点
     sensor_msgs::PointCloud2 surfPointsLessFlat2;
     pcl::toROSMsg(surfPointsLessFlat, surfPointsLessFlat2);
     surfPointsLessFlat2.header.stamp = laserCloudMsg->header.stamp;
@@ -520,6 +545,7 @@ void laserCloudHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg)
         for(int i = 0; i< N_SCANS; i++)
         {
             sensor_msgs::PointCloud2 scanMsg;
+            // 获取每一个scan的点云数据并发布出去
             pcl::toROSMsg(laserCloudScans[i], scanMsg);
             scanMsg.header.stamp = laserCloudMsg->header.stamp;
             scanMsg.header.frame_id = "/camera_init";
@@ -565,10 +591,11 @@ int main(int argc, char **argv)
     // 没有节点接收，用于rviz显示
     pubRemovePoints = nh.advertise<sensor_msgs::PointCloud2>("/laser_remove_points", 100);
 
-    if(PUB_EACH_LINE)
+    if(PUB_EACH_LINE)  // 这里是false
     {
         for(int i = 0; i < N_SCANS; i++)
         {
+            // 没有接收者
             ros::Publisher tmp = nh.advertise<sensor_msgs::PointCloud2>("/laser_scanid_" + std::to_string(i), 100);
             pubEachScan.push_back(tmp);
         }
