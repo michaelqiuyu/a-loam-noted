@@ -38,7 +38,8 @@ struct LidarEdgeFactor
 		Eigen::Matrix<T, 3, 1> nu = (lp - lpa).cross(lp - lpb);	// 模是三角形的面积
 		Eigen::Matrix<T, 3, 1> de = lpa - lpb;
 		// 残差的模是该点到底边的垂线长度
-		// 这里感觉不需要定义三维
+		// 这里感觉不需要定义三维：定义一个一维的距离即可；这里实际上是垂线向量
+		// 三维的残差要求每一维度都接近0，而一维的距离表示可以在一个球面上运动，自由度更高
 		residual[0] = nu.x() / de.norm();
 		residual[1] = nu.y() / de.norm();
 		residual[2] = nu.z() / de.norm();
@@ -89,7 +90,7 @@ struct LidarPlaneFactor
 
 		Eigen::Matrix<T, 3, 1> lp;
 		lp = q_last_curr * cp + t_last_curr;
-		// 点到平面的距离
+		// 点到平面的距离：一维表达
 		residual[0] = (lp - lpj).dot(ljm);
 
 		return true;

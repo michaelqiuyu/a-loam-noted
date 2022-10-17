@@ -293,6 +293,8 @@ int main(int argc, char **argv)
             fullPointsBuf.pop();
             mBuf.unlock();
 
+            // xc's todo: 代码里面并没有实现将上一帧的结果投影到结束时刻，而是依赖数据本身就是这种去畸变的数据
+
             TicToc t_whole;
             // initializing
             // 一个什么也不干的初始化
@@ -341,13 +343,19 @@ int main(int argc, char **argv)
                         // 在上一帧所有角点构成的kdtree中寻找距离当前帧最近的一个点
                         kdtreeCornerLast->nearestKSearch(pointSel, 1, pointSearchInd, pointSearchSqDis);
 
+#if 0
+                        std::cout << "pointSearchSqDis[0] = " << pointSearchSqDis[0] << std::endl;
+#endif
+
                         int closestPointInd = -1, minPointInd2 = -1;
                         // 只有小于给定门限才认为是有效约束
-                        if (pointSearchSqDis[0] < DISTANCE_SQ_THRESHOLD)
+                        if (pointSearchSqDis[0] < DISTANCE_SQ_THRESHOLD)  // 这个阈值设置的很大
                         {
                             closestPointInd = pointSearchInd[0];    // 对应的最近距离的索引取出来
                             // 找到其所在线束id，线束信息藏在intensity的整数部分
                             int closestPointScanID = int(laserCloudCornerLast->points[closestPointInd].intensity);
+
+                            // 在closestPointScanID上下线束一定范围内寻找离pointSel最近的点
 
                             double minPointSqDis2 = DISTANCE_SQ_THRESHOLD;
                             // search in the direction of increasing scan line
@@ -355,7 +363,7 @@ int main(int argc, char **argv)
                             for (int j = closestPointInd + 1; j < (int)laserCloudCornerLast->points.size(); ++j)
                             {
                                 // if in the same scan line, continue
-                                // 不找同一根线束的
+                                // 不找同一根线束的：closestPointInd后面的点的scan至少应该大于等于closestPointScanID
                                 if (int(laserCloudCornerLast->points[j].intensity) <= closestPointScanID)
                                     continue;
 
@@ -475,7 +483,7 @@ int main(int argc, char **argv)
                                     minPointInd2 = j;
                                 }
                                 // if in the higher scan line
-                                // 如果是其他线束点
+                                // 如果是其他线束点：上面的线束
                                 else if (int(laserCloudSurfLast->points[j].intensity) > closestPointScanID && pointSqDis < minPointSqDis3)
                                 {
                                     minPointSqDis3 = pointSqDis;
@@ -504,6 +512,7 @@ int main(int argc, char **argv)
                                     minPointSqDis2 = pointSqDis;
                                     minPointInd2 = j;
                                 }
+                                // 下面的线束
                                 else if (int(laserCloudSurfLast->points[j].intensity) < closestPointScanID && pointSqDis < minPointSqDis3)
                                 {
                                     // find nearer point
