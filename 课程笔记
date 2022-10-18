@@ -8,11 +8,45 @@
 	1.7 rosbag play ***.bag
 
 
-2. 前端配准
-	2.1 雷达坐标系：左-前-上
+2. 前端配准：雷达坐标系：左-前-上
+	2.1 将ros格式的点云转换为pcl
+	2.2 去除nan的点云removeNaNFromPointCloud：调用PCL的接口实现
+	2.3 去除近点removeClosedPointCloud：直接计算每一个点云的模长，如果模长小于阈值，就将其删除；算法实现的时候是直接在点云上进行修改，不会copy一份出来，这种处理方式可以学习借鉴，尤其是在数据量非常大的时候
+
+	2.4 计算每一个点云相对于起始的时间：
+		2.4.1 计算每一次扫描的起始角度startOri和结束角度endOri，计算的时候保证startOri与endOri之间间隔在2pi附近
+		2.4.2 对每一个点，首先计算其角度ori，然后根据其halfPassed来修正ori
+		2.4.3 根据(ori-startOri)/(endOri-startOri)计算当前点相对于起始时刻的时间的比例，并存储于intensity之中
+
+	2.5 计算每一个点云对应的线束scanID：
+		2.5.1 计算每一个点的俯仰角，根据Lidar硬件的属性来判断每一个点在哪一个线束上
+		2.5.2 对于16线激光：相邻线束相隔2度，排列分别为-15、-13、...-1、1、...、13、15
+
+	2.6 计算roughness：注意点云的存储是按照scan存储的
+		2.6.1 从第六个点开始计算roughness，一直计算到倒数第六个点
+		2.6.2 对每一维，选择其左边的五个点和右边的五个点（左边还是右边是根据索引直接获取的，因此每一个scan（不包括第一个scan的起始和最后一个scan的结尾）的起始5个点和结束的五个点虽然计算了，但是后面并没有用到，实际上计算也无法使用，这个很容易理解），将这10个点的这一维的数值相加并减去10倍的当前点的这个维度的数值
+		2.6.3 将2.6.2中计算的每一个维度取平方并相加，并保存到cloudCurvature中，cloudSortInd中存储当前点的索引，cloudNeighborPicked和cloudLabel存储的全是0
+
+	2.7 提取线点和面点：
+		2.7.1 计算每一个线束的起始计算索引scanStartInd和结束计算索引scanEndInd，每一个线束的前四个点和最后四个点都不计算
+		2.7.2 对每一个scan，如果这个线束的点云的数量不超过6个，那么直接跳过，不计算；否则继续执行
+		2.7.3 根据scanStartInd和scanEndInd将当前线束6等分，对每一等分，计算起始索引sp和结束索引ep，然后对当前等分根据曲率正向排序
+		2.7.4 对每一等分：
+			1. cornerPointsSharp：选择2个曲率大的线点，并标记cloudLabel为2；需要保证选择的时候周围点没有被选择，并且曲率大于0.1，同时将其也存储到一般的线点cornerPointsLessSharp中，标记这个点已经被选择，也就是cloudNeighborPicked标记为1
+			2. cornerPointsLessSharp：选择20个曲率一般大的线点，并标记cloudLabel为1；需要保证选择的时候周围点没有被选择；实际上，按照曲率，前两个点存储到cornerPointsSharp中，前20个点存储到cornerPointsLessSharp中，标记这个点已经被选择，也就是cloudNeighborPicked标记为1
+			3. surfPointsFlat：选择4个曲率小的面点，并标记cloudLabel为-1；需要保证选择的时候周围点没有被选择，并且曲率小于0.1，标记这个点已经被选择，也就是cloudNeighborPicked标记为1
+			4. surfPointsLessFlatScan：对当前等分的所有的点云，如果其cloudLabel小于等于0，那就是一般的面点；也就是除了cornerPointsSharp和cornerPointsLessSharp的所有点都是一般的面点，在这里不再判断cloudNeighborPicked了；由于这种点比较多，因此对其进行体素滤波，并将结果保存到surfPointsLessFlat中
+			5. 对每一个选择的点，判断其左右的点云是否连续，如果是连续的就标记左右的点云的cloudNeighborPicked为1；连续的判断方法是连续两个点的距离，判断距离是否大于0.05，如果大于就直接认为是非连续的
+
+	2.8 发布消息：
+		2.8.1 将所有的点云laserCloud、线点cornerPointsSharp、一般的线点cornerPointsLessSharp、面点surfPointsFlat、一般的面点surfPointsLessFlat都发布出去，由雷达里程计或者雷达建图接收
 
 
 3. 雷达里程计
+	3.1 如果线点cornerSharpBuf、一般的线点cornerLessSharpBuf、面点surfFlatBuf、一般的面点surfLessFlatBuf和所有的点云fullPointsBuf有一个为空，那么直接结束
+	3.2 分别取出cornerSharpBuf、cornerLessSharpBuf、surfFlatBuf、surfLessFlatBuf和fullPointsBuf的第一个时间，如果这5个时间不相等，那么直接运行ROS_BREAK，否则继续往后面执行
+	3.3 取出线点到cornerSharpBuf，取出一般的线点到cornerLessSharpBuf，取出面点到surfFlatBuf，取出一般的面点到surfLessFlatBuf，取出所有的点云到fullPointsBuf
+	3.4 
 
 
 4. 后端建图
