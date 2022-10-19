@@ -46,7 +46,12 @@
 	3.1 如果线点cornerSharpBuf、一般的线点cornerLessSharpBuf、面点surfFlatBuf、一般的面点surfLessFlatBuf和所有的点云fullPointsBuf有一个为空，那么直接结束
 	3.2 分别取出cornerSharpBuf、cornerLessSharpBuf、surfFlatBuf、surfLessFlatBuf和fullPointsBuf的第一个时间，如果这5个时间不相等，那么直接运行ROS_BREAK，否则继续往后面执行
 	3.3 取出线点到cornerSharpBuf，取出一般的线点到cornerLessSharpBuf，取出面点到surfFlatBuf，取出一般的面点到surfLessFlatBuf，取出所有的点云到fullPointsBuf
-	3.4 
+	3.4 对于第一帧扫描，将当前一般线点（其中必然包含了线点）和一般面点（其中必然包含了面点）赋值给laserCloudCornerLast和laserCloudSurfLast，为后面的操作做准备；对于非第一帧，就是将当前帧的数据赋值给上一帧；使用laserCloudCornerLast构建KD树kdtreeCornerLast，使用laserCloudSurfLast构建KD树kdtreeSurfLast 
+	3.5 
+
+
+	记录激光里程计的旋转和平移，此时旋转为单位阵，平移为零向量，并将位姿发布出去；
+
 
 
 4. 后端建图

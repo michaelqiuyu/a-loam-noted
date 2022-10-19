@@ -580,7 +580,7 @@ int main(int argc, char **argv)
             laserOdometry.header.frame_id = "/camera_init";
             laserOdometry.child_frame_id = "/laser_odom";
             laserOdometry.header.stamp = ros::Time().fromSec(timeSurfPointsLessFlat);
-            // 以四元数和平移向量发出去
+            // 以四元数和平移向量发出去：初值旋转为单位阵，初始平移为0
             laserOdometry.pose.pose.orientation.x = q_w_curr.x();
             laserOdometry.pose.pose.orientation.y = q_w_curr.y();
             laserOdometry.pose.pose.orientation.z = q_w_curr.z();
