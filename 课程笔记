@@ -46,11 +46,26 @@
 	3.1 如果线点cornerSharpBuf、一般的线点cornerLessSharpBuf、面点surfFlatBuf、一般的面点surfLessFlatBuf和所有的点云fullPointsBuf有一个为空，那么直接结束
 	3.2 分别取出cornerSharpBuf、cornerLessSharpBuf、surfFlatBuf、surfLessFlatBuf和fullPointsBuf的第一个时间，如果这5个时间不相等，那么直接运行ROS_BREAK，否则继续往后面执行
 	3.3 取出线点到cornerSharpBuf，取出一般的线点到cornerLessSharpBuf，取出面点到surfFlatBuf，取出一般的面点到surfLessFlatBuf，取出所有的点云到fullPointsBuf
-	3.4 对于第一帧扫描，将当前一般线点（其中必然包含了线点）和一般面点（其中必然包含了面点）赋值给laserCloudCornerLast和laserCloudSurfLast，为后面的操作做准备；对于非第一帧，就是将当前帧的数据赋值给上一帧；使用laserCloudCornerLast构建KD树kdtreeCornerLast，使用laserCloudSurfLast构建KD树kdtreeSurfLast 
-	3.5 
-
-
-	记录激光里程计的旋转和平移，此时旋转为单位阵，平移为零向量，并将位姿发布出去；
+	3.4 对于第一帧扫描，将当前一般线点（其中必然包含了线点）和一般面点（其中必然包含了面点）赋值给laserCloudCornerLast和laserCloudSurfLast，为后面的操作做准备；对于非第一帧，就是将当前帧的数据赋值给上一帧；使用laserCloudCornerLast构建KD树kdtreeCornerLast，使用laserCloudSurfLast构建KD树kdtreeSurfLast；按照指定的频率发布当前帧一般的角点和一般的面点
+	3.5 TransformToStart：
+		3.5.1 计算当前到起始的时间的比例
+		3.5.2 使用已经有的q_last_curr通过四元数球面插值计算当前时刻到起始的旋转变换
+		3.5.3 对平移执行线性插值，计算当前时刻到起始的平移变换
+		3.5.4 通过计算的变换，将当前的点云变换到起始时刻
+	3.6 TransformToEnd：
+		3.6.1 调用TransformToStart将点云转换到起始时刻
+		3.6.2 通过q_last_curr将点云变换到结束时刻
+	3.7 通过两次迭代，每一次迭代：
+		3.7.1 对每一个角点：
+			1. 将其变化到当前帧的起始时刻，然后在kdtreeCornerLast（使用一般的线点构建）中搜索距离最近的一个点，要求这个最近距离小于阈值
+			2. 获取最近点的索引，在其左右两边的某个范围内（在上下3个线束内且与当前点云不同线束）搜索在距离阈值范围内的最近点，并获取其索引
+			3. 通过获取当前这个面点和最近的两个点（不同线束的近点），构建一个点到线的距离的BA问题
+		3.7.2 对每一个面点：
+			1. 将其变化到当前帧的起始时刻，然后在kdtreeSurfLast（使用一般的面点构建）中搜索最近的一个点，要求这个最近距离小于阈值
+			2. 获取最近点的索引，在其左右两边的某个范围内（在上下3个线束内且与当前点云不同线束）搜索在距离阈值范围内的最近点，并获取其索引；在当前点的相同线束上搜索一个最近点，并获取其索引；这里的距离也要满足最近的距离阈值
+			3. 通过获取当前这个面点和最近的三个点（一个最近点，一个与最近点同线束的近点，另外两个不同线束的近点），构建一个点到平面距离的BA问题
+		3.7.3 通过ceres求解当前帧到上一帧的变换t_last_curr和q_last_curr，据此更新当前帧到世界的变换t_w_curr和q_w_curr
+	3.8 记录激光里程计的旋转和平移（当前帧到世界），并将位姿发布出去；
 
 
 

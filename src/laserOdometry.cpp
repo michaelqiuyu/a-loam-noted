@@ -364,12 +364,12 @@ int main(int argc, char **argv)
                             {
                                 // if in the same scan line, continue
                                 // 不找同一根线束的：closestPointInd后面的点的scan至少应该大于等于closestPointScanID
-                                if (int(laserCloudCornerLast->points[j].intensity) <= closestPointScanID)
+                                if (int(laserCloudCornerLast->points[j].intensity) <= closestPointScanID)  // 注意这里使用了int
                                     continue;
 
                                 // if not in nearby scans, end the loop
                                 // 要求找到的线束距离当前线束不能太远
-                                if (int(laserCloudCornerLast->points[j].intensity) > (closestPointScanID + NEARBY_SCAN))
+                                if (int(laserCloudCornerLast->points[j].intensity) > (closestPointScanID + NEARBY_SCAN))  // 此处的比较，前面是整型，后面是浮点型
                                     break;
                                 // 计算和当前找到的角点之间的距离
                                 double pointSqDis = (laserCloudCornerLast->points[j].x - pointSel.x) *
@@ -642,14 +642,14 @@ int main(int argc, char **argv)
             {
                 frameCount = 0;
 
-                // 发布上一帧的角点
+                // 发布上一帧的一般的角点
                 sensor_msgs::PointCloud2 laserCloudCornerLast2;
                 pcl::toROSMsg(*laserCloudCornerLast, laserCloudCornerLast2);
                 laserCloudCornerLast2.header.stamp = ros::Time().fromSec(timeSurfPointsLessFlat);
                 laserCloudCornerLast2.header.frame_id = "/camera";
                 pubLaserCloudCornerLast.publish(laserCloudCornerLast2);
 
-                // 发布上一帧的面点
+                // 发布上一帧的一般的面点
                 sensor_msgs::PointCloud2 laserCloudSurfLast2;
                 pcl::toROSMsg(*laserCloudSurfLast, laserCloudSurfLast2);
                 laserCloudSurfLast2.header.stamp = ros::Time().fromSec(timeSurfPointsLessFlat);
