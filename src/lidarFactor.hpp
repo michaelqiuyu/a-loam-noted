@@ -127,7 +127,8 @@ struct LidarPlaneNormFactor
 		point_w = q_w_curr * cp + t_w_curr;
 
 		Eigen::Matrix<T, 3, 1> norm(T(plane_unit_norm.x()), T(plane_unit_norm.y()), T(plane_unit_norm.z()));
-		residual[0] = norm.dot(point_w) + T(negative_OA_dot_norm);	// 求解点到平面的距离
+        // 实际上还是点到平面的距离公式
+		residual[0] = norm.dot(point_w) + T(negative_OA_dot_norm);
 		return true;
 	}
 
